@@ -6,7 +6,7 @@ import os
 import pickle
 import sys
 from array import array
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Final, Iterable, Optional, Union
 from zipfile import ZipFile
@@ -84,13 +84,21 @@ class MultiThreadUnzipper(Unzipper):
             chunksize = math.ceil(len(files) / self._threads)
             # start the thread pool
             with ThreadPoolExecutor(self._threads) as exe:
+                # set collection to store the tasks
+                tasks = set()
                 # split the copy operations into chunks
                 for i in range(0, len(files), chunksize):
                     # select a chunk of filenames
                     filenames = files[i: (i + chunksize)]
                     # submit the batch copy task
-                    _ = exe.submit(self._unzip_files, handle, filenames)
-
+                    task = exe.submit(self._unzip_files, handle, filenames)
+                    tasks.add(task)
+                # check exceptions in tasks after completion
+                for task in as_completed(tasks):
+                    try:
+                        result = task.result()
+                    except Exception as exc:
+                        print('Exception: %s' % (exc))
 
 class CombinedUnzipper(Unzipper):
     """Unzipper for low compression levels"""
