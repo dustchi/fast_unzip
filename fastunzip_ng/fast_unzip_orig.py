@@ -42,7 +42,6 @@ class Unzipper:
         self._path = path  # Where to unpack
         self._zip_archive = zip_archive  # Where zip archive is
         self._cpu = os.cpu_count()  # CPU count for automatic work
-        self.cnt = 0
         # Check for all situations, raise errors is smth is wrong
         if threads is None and self._cpu is None:
             raise UnableToCountCores("Enter cores or threads explicitly.")
@@ -58,7 +57,6 @@ class Unzipper:
     def _save_file(self, data: ReadableBuffer, filename: str) -> None:
         # create a path
         filepath = os.path.join(self._path, filename)
-        print("MIKE: filepath to be create: ", filepath)
         # write to disk
         with open(filepath, "wb") as file:
             file.write(data)
@@ -71,16 +69,12 @@ class MultiThreadUnzipper(Unzipper):
     def _unzip_files(self, handle: ZipFile, filenames: Iterable[str]) -> None:
         # unzip multiple files
         for filename in filenames:
-            # unzip the file            
-            self.cnt += 1
-            if filename.endswith("layer.json"):
-                print("MIKE unzip file:",self.cnt, self._path, filename)
+            # unzip the file
             handle.extract(filename, self._path)
 
     # unzip a large number of files
     def unzip(self) -> None:
         # open the zip file
-        batchNo = 0
         with ZipFile(self._zip_archive, "r") as handle:
             # list of all files to unzip
             files = handle.namelist()
@@ -88,45 +82,23 @@ class MultiThreadUnzipper(Unzipper):
                 raise EmptyArchiveError("Archive is empty.")
             # determine chunksize
             chunksize = math.ceil(len(files) / self._threads)
-            #chunksize = 10000
-            print("MIKE: files count: ", len(files))
-            print("MIKE: chunksize: ", chunksize)
-            print("MIKE: threads count: ", self._threads)
-
-            # cnt = 0
-            # for filename in files:                
-            #     if filename.endswith("layer.json"):
-            #         print(cnt, filename)
-            #     cnt = cnt + 1
-            # print("Last one", files[182869])
-            # print("done")
-            # quit()
-            
             # start the thread pool
-            # with ThreadPoolExecutor(max_workers=4) as exe:
             with ThreadPoolExecutor(self._threads) as exe:
+                # set collection to store the tasks
                 tasks = set()
                 # split the copy operations into chunks
                 for i in range(0, len(files), chunksize):
-                    batchNo += 1
-                    print("MIKE: batchNo: ", batchNo)
                     # select a chunk of filenames
                     filenames = files[i: (i + chunksize)]
                     # submit the batch copy task
-                    # _ = exe.submit(self._unzip_files, handle, filenames)
                     task = exe.submit(self._unzip_files, handle, filenames)
                     tasks.add(task)
-                    # exception = future.exception()
-                    # print(exception)
-
+                # check exceptions in tasks after completion
                 for task in as_completed(tasks):
                     try:
                         result = task.result()
                     except Exception as exc:
-                        print('Exception found: %s' % (exc))
-                    else:
-                        print('Task ',task, ' is ok')
-
+                        print('Exception: %s' % (exc))
 
 class CombinedUnzipper(Unzipper):
     """Unzipper for low compression levels"""
@@ -177,32 +149,26 @@ class CombinedUnzipper(Unzipper):
                     # decompress data
                     data = handle.read(filename)
                     # save to disk
-                    print("MIKE: Save filename: ",filename)
                     _ = exe.submit(self._save_file, data, filename)
 
     # unzip a large number of files
     def unzip(self) -> None:
         # create the target directory
-        print("MIKE: using path: ", self._path)
         os.makedirs(self._path, exist_ok=True)
         # open the zip file
         with ZipFile(self._zip_archive, "r") as handle:
             # list of all files to unzip
             files = handle.namelist()
-            print("MIKE: number of files: ", len(files))
             if len(files) == 0:
                 raise EmptyArchiveError("Archive is empty.")
         # determine chunksize
         chunksize = math.ceil(len(files) / self.__processes)
-        print("MIKE: chunksize: ", chunksize)
         # start the thread pool
         with ProcessPoolExecutor(self.__processes) as exe:
             # split the copy operations into chunks
             for i in range(0, len(files), chunksize):
                 # select a chunk of filenames
                 filenames = files[i: (i + chunksize)]
-                print("MIKE: number of files in chunk: ",len(filenames))
-                print("filename 1: ",filenames[0])
                 # submit the batch copy task
                 _ = exe.submit(self._unzip_files, filenames)
 
@@ -293,28 +259,21 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    print("MIKE: FORCE mode = mt !!!")
-    args.mode = "mt"
     if args.mode is None:
         # If mode isn't specified controller decides what to use
         compression = Controller(args.archive_path).get_compression()
-        print("MIKE: Compression: ", compression)
         if compression > THRESHOLD:
-            print("MIKE: MultiThread Unzipper Used.")
             MultiThreadUnzipper(args.archive_path,
                                 args.outdir, args.n_threads).unzip()
         elif compression <= THRESHOLD:
-            print("MIKE: Combined Unzipper Used.")
             CombinedUnzipper(
                 args.archive_path, args.outdir, args.n_proc, args.n_threads
             ).unzip()
     # If mode is given no controller is needed
     elif args.mode == "mt":
-        print("MIKE: MultiThread Unzipper Used.")
         MultiThreadUnzipper(args.archive_path, args.outdir,
                             args.n_threads).unzip()
     elif args.mode == "cmbd":
-        print("MIKE: Combined Unzipper Used.")
         CombinedUnzipper(
             args.archive_path, args.outdir, args.n_proc, args.n_threads
         ).unzip()
