@@ -247,7 +247,7 @@ class Controller:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="fast_unzip",
+        prog="fastunzip_ng",
         description="unzips ZIP archives",
     )
     parser.add_argument(
